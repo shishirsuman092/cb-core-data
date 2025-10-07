@@ -36,14 +36,14 @@ class ODCSRecommendationModel:
 
     def process_data(self, spark, config):
         try:
-            all_enrolments_df = spark.read.parquet(f"{config.warehouseReportDir}/{config.dwEnrollmentsTable}")
-            content_df = spark.read.parquet(f"{config.warehouseReportDir}/{config.dwCourseTable}") \
+            all_enrolments_df = spark.read.parquet(ParquetFileConstants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE).withColumnRenamed("userID", "user_id")
+            content_df = spark.read.parquet(ParquetFileConstants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE) \
                 .filter(col("content_sub_type").isin("Course", "Program", "Moderated Course", "Moderated Program"))
             enrolments_df = all_enrolments_df.join(
                 content_df.select("content_id"), ["content_id"], "inner"
             )
 
-            user_df = spark.read.parquet(f"{config.warehouseReportDir}/{config.dwUserTable}")
+            user_df = spark.read.parquet(ParquetFileConstants.USER_WAREHOUSE_COMPUTED_PARQUET_FILE)
             rating_draft_df = spark.read.parquet(ParquetFileConstants.RATING_PARQUET_FILE)
 
             completion_df = enrolments_df.groupBy("content_id").agg(count("user_id").alias("total_enrolments"),

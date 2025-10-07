@@ -140,6 +140,11 @@ def processUserReport(config):
             col("Organization"),
             from_unixtime(col("userCreatedTimestamp") / 1000, ParquetFileConstants.DATE_FORMAT).alias(
                 "User_Registration_Date"),
+            col("cadreName").alias("Cadre"),
+            col("civilServiceType").alias("Civil Service Type"),
+            col("civilServiceName").alias("Civil Services"),
+            col("cadreBatch").alias("Cadre Batch"),
+            col("organised_service").alias("Is From Organised Service of Govt"),
             col("role").alias("Roles"),
             col("personalDetails.gender").alias("Gender"),
             col("personalDetails.category").alias("Category"),

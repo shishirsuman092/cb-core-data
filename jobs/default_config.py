@@ -180,6 +180,8 @@ DEFAULT_CONFIG = {
     'stateLearningWeekStart': '2024-10-19 00:00:00',
     'stateLearningWeekEnd': '2025-03-14 23:59:59',
     'sizeBucketString': '1-100-XS,101-500-S,501-1000-M,1001-10000-L,10001-25000-X,above 25000-XXL',
+    'overridesForSlw': {},
+    'rollupRequiredOrgs': [],
 
     # Zip Reports Configuration
     'prefixDirectoryPath': 'pyspark/standalone-reports',
