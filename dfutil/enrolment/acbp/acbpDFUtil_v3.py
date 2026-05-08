@@ -207,7 +207,7 @@ def explodeAcbpData(spark, acbp_df: DataFrame) -> DataFrame:
     db_path = f"{temp_dir}/acbp_processing.duckdb"
     con = duckdb.connect(database=db_path)
     con.execute(f"SET temp_directory='{temp_dir}'")
-    con.execute("SET memory_limit='10GB'")
+    con.execute("SET memory_limit='30GB'")
     con.execute("SET threads=4")
     con.execute("SET preserve_insertion_order=false")
 

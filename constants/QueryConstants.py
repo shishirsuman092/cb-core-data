@@ -15,6 +15,62 @@ class QueryConstants:
     - org_hierarchy: orgID, orgName (for mdo_name mapping)
     """
 
+    @staticmethod
+    def get_cbp_moderated_metrics(parquet_constants):
+        import duckdb
+
+        enrolment_count_query = f"""
+            SELECT 
+                content_table.content_provider_id as courseOrgID,
+                COUNT(*) as course_moderated_course_enrolment_count,
+                COUNT(DISTINCT enrolment_table.userID) as course_moderated_course_enrolment_unique_user_count
+            FROM read_parquet('{parquet_constants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') enrolment_table
+            INNER JOIN read_parquet('{parquet_constants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') content_table
+                ON enrolment_table.content_id = content_table.content_id
+            INNER JOIN read_parquet('{parquet_constants.USER_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') user_table
+                ON enrolment_table.userID = user_table.user_id
+            WHERE user_table.status = 1
+            GROUP BY content_table.content_provider_id
+        """
+
+        cert_count_query = f"""
+            SELECT 
+                content_table.content_provider_id as courseOrgID,
+                COUNT(*) as course_moderated_course_certificates_generated_count,
+                COUNT(DISTINCT enrolment_table.userID) as course_moderated_course_certificates_generated_unique_user_count
+            FROM read_parquet('{parquet_constants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') enrolment_table
+            INNER JOIN read_parquet('{parquet_constants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') content_table
+                ON enrolment_table.content_id = content_table.content_id
+            INNER JOIN read_parquet('{parquet_constants.USER_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') user_table
+                ON enrolment_table.userID = user_table.user_id
+            WHERE user_table.status = 1
+            AND content_table.content_status IN ('Live', 'Retired')
+            AND enrolment_table.certificateID IS NOT NULL
+            AND enrolment_table.certificateID != ''
+            GROUP BY content_table.content_provider_id
+        """
+
+        content_metrics_query = f"""
+            SELECT 
+                content_provider_id as courseOrgID,
+                COUNT(DISTINCT content_id) as live_course_moderated_course_count,
+                CASE 
+                    WHEN COUNT(CASE WHEN content_type = 'Course' AND TRY_CAST(content_rating AS DOUBLE) IS NOT NULL THEN 1 END) = 0 THEN NULL
+                    ELSE SUM(CASE WHEN content_type = 'Course' THEN TRY_CAST(content_rating AS DOUBLE) ELSE 0 END)
+                     / COUNT(CASE WHEN content_type = 'Course' AND TRY_CAST(content_rating AS DOUBLE) IS NOT NULL THEN 1 END)
+                END as course_moderated_course_average_rating
+            FROM read_parquet('{parquet_constants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet')
+            WHERE content_status = 'Live'
+            GROUP BY content_provider_id
+        """
+
+        df1 = duckdb.query(enrolment_count_query).df()
+        df2 = duckdb.query(cert_count_query).df()
+        df3 = duckdb.query(content_metrics_query).df()
+
+        result = df3.merge(df1, on="courseOrgID", how="left").merge(df2, on="courseOrgID", how="left")
+        return result
+
     # ==================== DATE & TIME CALCULATIONS ====================
     currentDate = datetime.now().date()
     istOffset = timezone(timedelta(hours=5, minutes=30))
@@ -329,18 +385,61 @@ class QueryConstants:
     """
 
     # ==================== NEW: SEPARATE QUERY FOR LIVE COURSE COUNT (NOT FROM ENROLLMENTS) ====================
-
-    LIVE_COURSE_MODERATED_COUNT_BY_ORG = f"""
+    CBP_MODERATED_METRICS = f"""
+SELECT 
+    content_metrics.courseOrgID,
+    enrolment_counts.course_moderated_course_enrolment_count,
+    enrolment_counts.course_moderated_course_enrolment_unique_user_count,
+    cert_counts.course_moderated_course_certificates_generated_count,
+    cert_counts.course_moderated_course_certificates_generated_unique_user_count,
+    content_metrics.live_course_moderated_course_count,
+    content_metrics.course_moderated_course_average_rating
+FROM 
+(
     SELECT 
         content_provider_id as courseOrgID,
         COUNT(DISTINCT content_id) as live_course_moderated_course_count,
-        AVG(TRY_CAST(content_rating AS DOUBLE)) as course_moderated_course_average_rating
+        CASE 
+            WHEN COUNT(CASE WHEN content_type = 'Course' AND TRY_CAST(content_rating AS DOUBLE) IS NOT NULL THEN 1 END) = 0 THEN NULL
+            ELSE SUM(CASE WHEN content_type = 'Course' THEN TRY_CAST(content_rating AS DOUBLE) ELSE 0 END)
+                 / COUNT(CASE WHEN content_type = 'Course' AND TRY_CAST(content_rating AS DOUBLE) IS NOT NULL THEN 1 END)
+        END as course_moderated_course_average_rating
     FROM read_parquet('{ParquetFileConstants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet')
     WHERE content_status = 'Live'
-    AND content_type = 'Course'
     GROUP BY content_provider_id
-    """
-
+) content_metrics
+LEFT JOIN 
+(
+    SELECT 
+        content_provider_id as courseOrgID,
+        COUNT(*) as course_moderated_course_enrolment_count,
+        COUNT(DISTINCT enrolment_table.userID) as course_moderated_course_enrolment_unique_user_count
+    FROM read_parquet('{ParquetFileConstants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') enrolment_table
+    INNER JOIN read_parquet('{ParquetFileConstants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') content_table
+        ON enrolment_table.content_id = content_table.content_id
+    INNER JOIN read_parquet('{ParquetFileConstants.USER_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') user_table
+        ON enrolment_table.userID = user_table.user_id
+    WHERE user_table.status = 1
+    GROUP BY content_table.content_provider_id
+) enrolment_counts ON content_metrics.courseOrgID = enrolment_counts.courseOrgID
+LEFT JOIN 
+(
+    SELECT 
+        content_provider_id as courseOrgID,
+        COUNT(*) as course_moderated_course_certificates_generated_count,
+        COUNT(DISTINCT enrolment_table.userID) as course_moderated_course_certificates_generated_unique_user_count
+    FROM read_parquet('{ParquetFileConstants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') enrolment_table
+    INNER JOIN read_parquet('{ParquetFileConstants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') content_table
+        ON enrolment_table.content_id = content_table.content_id
+    INNER JOIN read_parquet('{ParquetFileConstants.USER_WAREHOUSE_COMPUTED_PARQUET_FILE}/**.parquet') user_table
+        ON enrolment_table.userID = user_table.user_id
+    WHERE user_table.status = 1
+    AND content_table.content_status IN ('Live', 'Retired')
+    AND enrolment_table.certificate_id IS NOT NULL 
+    AND enrolment_table.certificate_id != ''
+    GROUP BY content_table.content_provider_id
+) cert_counts ON content_metrics.courseOrgID = cert_counts.courseOrgID
+"""
     # ==================== QUERIES USING BASE_DATA ====================
 
     OVERALL_METRICS = BASE_DATA_COMPLETE + f"""
@@ -413,8 +512,6 @@ class QueryConstants:
         COUNT(*) FILTER (WHERE live_retired_course_eligible = 'live_retired_course') as course_enrolment_count,
         COUNT(DISTINCT userID) FILTER (WHERE live_retired_course_eligible = 'live_retired_course') as course_enrolment_unique_user_count,
         COUNT(*) FILTER (WHERE live_retired_content_eligible = 'live_retired_content' AND completion_category = 'completed') as content_completed_count,
-        COUNT(*) FILTER (WHERE live_retired_course_moderated_eligible = 'live_retired_course_moderated') as course_moderated_course_enrolment_count,
-        COUNT(DISTINCT userID) FILTER (WHERE live_retired_course_moderated_eligible = 'live_retired_course_moderated') as course_moderated_course_enrolment_unique_user_count,
         COUNT(*) FILTER (WHERE live_retired_content_eligible = 'live_retired_content') as content_enrolment_count,
         COUNT(DISTINCT userID) FILTER (WHERE live_retired_content_eligible = 'live_retired_content') as content_enrolment_unique_user_count,
         COUNT(*) FILTER (WHERE live_retired_course_eligible = 'live_retired_course' AND completion_category = 'not_started') as not_started_count,
@@ -427,13 +524,10 @@ class QueryConstants:
         COUNT(DISTINCT userID) FILTER (WHERE live_retired_course_eligible = 'live_retired_course' AND completion_category = 'completed') as completed_unique_user_count,
         COUNT(*) FILTER (WHERE live_retired_content_eligible = 'live_retired_content' AND certificate_category = 'certificate_generated') as certificates_generated_count,
         COUNT(DISTINCT userID) FILTER (WHERE live_retired_content_eligible = 'live_retired_content' AND certificate_category = 'certificate_generated') as certificates_generated_unique_user_count,
-        COUNT(*) FILTER (WHERE live_retired_course_moderated_eligible = 'live_retired_course_moderated' AND certificate_category = 'certificate_generated') as course_moderated_course_certificates_generated_count,
-        COUNT(DISTINCT userID) FILTER (WHERE live_retired_course_moderated_eligible = 'live_retired_course_moderated' AND certificate_category = 'certificate_generated') as course_moderated_course_certificates_generated_unique_user_count
     FROM base_data
     WHERE courseOrgID IS NOT NULL
     GROUP BY courseOrgID
     """
-
     TOP_COURSES_BY_ORG = BASE_DATA_COMPLETE + """,
     course_counts AS (
         SELECT 
@@ -1305,8 +1399,7 @@ class QueryConstants:
     # ===== QUERY LISTS FOR ORGANIZED EXECUTION =====
     ORG_BASED_LIST = [ORG_BASED_DESIGNATION_LIST, ORG_USER_COUNT_DATAFRAME_QUERY, ORG_BASED_MDO_ADMIN_COUNT]
     COURSE_BASED_LIST = [COURSE_COUNT_BY_STATUS_GROUP_BY_ORG]
-    ENROLMENT_BASED_LIST = [OVERALL_METRICS, MDO_WISE_COMPREHENSIVE, CBP_WISE_COMPREHENSIVE,
-                            LIVE_COURSE_MODERATED_COUNT_BY_ORG]  # Added new query here
+    ENROLMENT_BASED_LIST = [OVERALL_METRICS, MDO_WISE_COMPREHENSIVE, CBP_WISE_COMPREHENSIVE, CBP_MODERATED_METRICS]
     TOP_5_LIST = [TOP_5_USERS_BY_COMPLETION_BY_MDO, TOP_5_COURSES_BY_COMPLETION_BY_MDO,
                   TOP_5_CONTENT_BY_COMPLETION_BY_ORG, TOP_5_CONTENT_BY_ENROLLMENTS_BY_CBP,
                   TOP_5_COURSES_BY_RATING, TOP_5_MDO_BY_COMPLETION]

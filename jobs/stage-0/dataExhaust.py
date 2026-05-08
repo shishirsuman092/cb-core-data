@@ -17,6 +17,7 @@ from pyspark.sql.functions import (
     expr, date_format, to_utc_timestamp, current_timestamp, coalesce,
     to_timestamp, isnan, isnull, format_string, array_join, first, count, sum, row_number
 )
+from pyspark.sql.functions import unix_timestamp, abs
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, BooleanType, FloatType, ArrayType
 from pyspark import StorageLevel
 import logging
@@ -29,7 +30,6 @@ from jobs.default_config import create_config
 from dfutil.utils import utils
 from util import schemas
 from pyspark.sql.window import Window
-
 
 class DataExhaustModel:
 
@@ -243,6 +243,7 @@ class DataExhaustModel:
 
             # write user assessment data to parquet
             self.write_parquet(user_assessment_df, f"{output_base_path}/userAssessmentRaw")
+
             user_assessment_df.unpersist()
             self.logger.info("User assessment processing completed successfully!")
 
@@ -630,13 +631,6 @@ class DataExhaustModel:
             self.write_parquet(es_final_assessment_df, f"{output_base_path}/esFinalAssessment")
             es_final_assessment_df.unpersist()
 
-            # Process access control settings for CAP
-            self.logger.info("Processing access control settings for CAP...")
-            access_control_settings_df = self.read_cassandra_table(self.config.cassandraCourseKeyspace, self.config.cassandraAccessSettingRulesTable)
-
-            self.write_parquet(access_control_settings_df, f"{output_base_path}/accessControlSettings")
-            access_control_settings_df.unpersist()
-
             # Process course assessment data
             self.logger.info("Processing assessment ES content data...")
             primary_categories = ["Course Assessment"]
@@ -659,6 +653,13 @@ class DataExhaustModel:
             es_course_assessment_df.unpersist()
 
             self.logger.info("ES course assessment data processing completed.")
+
+            # Process access control settings for CAP
+            self.logger.info("Processing access control settings for CAP...")
+            access_control_settings_df = self.read_cassandra_table("sunbird_courses", "access_setting_rules_v2")
+
+            self.write_parquet(access_control_settings_df, f"{output_base_path}/accessControlSettings")
+            access_control_settings_df.unpersist()
 
             # Process Elasticsearch course completion data
             self.logger.info("Processing course completion survey data...")

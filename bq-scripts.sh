@@ -8,8 +8,7 @@ DATASET_NAME="kb_prod_dataset"
 STORAGE_FOLDER="kb_prod_avro"
 
 # Loop over each table name
-for TABLE_NAME in "assessment_detail" "bp_enrolments" "cb_plan" "content" "content_resource" "kcm_content_mapping" "kcm_dictionary" "org_hierarchy" "user_detail" "user_enrolments" "event_details" "event_enrolment_details"; do
-
+for TABLE_NAME in "assessment_detail" "bp_enrolments" "cb_plan" "content" "content_resource" "cap_allocation_meta" "cap_allocation_user_wise" "kcm_content_mapping" "kcm_dictionary" "org_hierarchy" "user_detail" "user_enrolments" "event_details" "event_enrolment_details"; do
   echo "Processing table: $TABLE_NAME"
 
   # Delete all existing avro files in Cloud Storage

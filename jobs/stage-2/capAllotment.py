@@ -543,74 +543,70 @@ class CAPAccessControlModel:
                     umc.user_id,
                     umc.cap_id,
                     umc.cap_name,
-                    umc.created_by_id
+                    umc.created_by_id,
+                    umc.user_group_id
                 FROM user_match_counts umc
                 INNER JOIN criteria_group_count cgc
-                    ON umc.cap_id = cgc.cap_id
-                    AND umc.user_group_id = cgc.user_group_id
+                ON umc.cap_id = cgc.cap_id
+                AND umc.user_group_id = cgc.user_group_id
                 WHERE umc.matched_types = cgc.total_criteria_types
             """)
 
             # Join with user details for final output with mapped allotment columns
             print("  Preparing final results with proper column ordering and mapped allotment fields...")
             con.execute(f"""
-                CREATE OR REPLACE TABLE final_results AS
-                WITH user_allocations AS (
-                    SELECT DISTINCT
-                        cm.user_id,
-                        cm.cap_id,
-                        cm.cap_name,
-                        cm.created_by_id
-                    FROM complete_matches cm
-                ),
-                cap_allocation_mapped AS (
-                    SELECT 
-                        cap_id,
-                        -- Map criteria types to actual field names for allotment_type
-                        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                            allotment_type,
-                            'rootorgid', 'mdo_id'),
-                            'customuser', 'user_id'),
-                            'alluser', 'user_id'),
-                            'group', 'groups'),
-                            'batch', 'cadre_batch'),
-                            'service', 'civil_services'),
-                            'isprofileverified', 'is_verified_karmayogi'),
-                            'isoncentraldeputation', 'is_on_central_deputation'),
-                            'profilestatus', 'profile_status'),
-                            'user', 'user_id'
-                        ) as allotment_type_mapped,
-                        allotment_to as allotment_to_mapped
-                    FROM read_parquet('{cap_criteria_path}/**.parquet')
-                    WHERE cap_id IN (SELECT DISTINCT cap_id FROM user_allocations)
-                ),
-                distinct_caps AS (
-                    SELECT DISTINCT
-                        cap_id,
-                        allotment_type_mapped,
-                        allotment_to_mapped
-                    FROM cap_allocation_mapped
-                )
-                SELECT DISTINCT
-                    u.user_id,
-                    u.full_name,
-                    u.email,
-                    u.phone_number,
-                    u.designation,
-                    u.groups,
-                    u.tag,
-                    u.cadre,
-                    u.civil_services,
-                    u.cadre_batch,
-                    u.is_on_central_deputation,
-                    ua.cap_id,
-                    ua.cap_name,
-                    ua.created_by_id,
-                    dc.allotment_type_mapped as allotment_type,
-                    dc.allotment_to_mapped as allotment_to
-                FROM user_allocations ua
-                INNER JOIN users u ON ua.user_id = u.user_id
-                LEFT JOIN distinct_caps dc ON ua.cap_id = dc.cap_id
+            CREATE OR REPLACE TABLE final_results AS
+            WITH user_allocations AS (
+            SELECT DISTINCT
+                cm.user_id,
+                cm.cap_id,
+                cm.cap_name,
+                cm.created_by_id,
+                cm.user_group_id
+            FROM complete_matches cm),
+            cap_allocation_mapped AS (
+            SELECT
+                cap_id,
+                user_group_id,
+                REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    allotment_type,
+                    'rootorgid', 'mdo_id'),
+                    'customuser', 'user_id'),
+                    'alluser', 'user_id'),
+                    'group', 'groups'),
+                    'batch', 'cadre_batch'),
+                    'service', 'civil_services'),
+                    'isprofileverified', 'is_verified_karmayogi'),
+                    'isoncentraldeputation', 'is_on_central_deputation'),
+                    'profilestatus', 'profile_status'),
+                    'user', 'user_id'
+                    ) as allotment_type_mapped,
+                    allotment_to as allotment_to_mapped
+            FROM read_parquet('{cap_criteria_path}/**.parquet')
+            WHERE cap_id IN (SELECT DISTINCT cap_id FROM user_allocations)
+            )
+            SELECT DISTINCT
+                u.user_id,
+                u.full_name,
+                u.email,
+                u.phone_number,
+                u.designation,
+                u.groups,
+                u.tag,
+                u.cadre,
+                u.civil_services,
+                u.cadre_batch,
+                u.is_on_central_deputation,
+                ua.cap_id,
+                ua.cap_name,
+                ua.created_by_id,
+                dc.allotment_type_mapped as allotment_type,
+                dc.allotment_to_mapped   as allotment_to
+            FROM user_allocations ua
+            INNER JOIN users u ON ua.user_id = u.user_id
+            LEFT JOIN cap_allocation_mapped dc
+            ON ua.cap_id        = dc.cap_id
+            AND ua.user_group_id = dc.user_group_id
             """)
 
             # Write final output

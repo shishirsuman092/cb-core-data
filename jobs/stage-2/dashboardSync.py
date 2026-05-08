@@ -127,16 +127,16 @@ class DashboardSyncModel:
             print(f"📝 Redis Key: dashboard_update_time, Value: {processing_time}")
 
             # ===== PHASE 1: Org & User Data (Scala lines 38-100) =====
-            #self.process_org_user_data(spark, config)
+            self.process_org_user_data(spark, config)
 
             # ===== PHASE 2: Dashboard Redis Updates (Scala line 111) =====
             self.dashboardRedisUpdates(spark, config)
 
             # ===== PHASE 3: Learner Home Page Data (Scala line 108) =====
-            #self.update_learner_home_page_data(spark, config)
+            self.update_learner_home_page_data(spark, config)
 
             # ===== PHASE 4: CBP Top 10 Reviews (Scala line 114) =====
-            #self.cbp_top_10_reviews(spark, config)
+            self.cbp_top_10_reviews(spark, config)
             # ===== PHASE 5: Kafka displatches for druid ingest =====
             enrolmentWarehouseComputed = spark.read.parquet(ParquetFileConstants.ENROLMENT_WAREHOUSE_COMPUTED_PARQUET_FILE)
             contentWarehouseComputed = spark.read.parquet(ParquetFileConstants.CONTENT_WAREHOUSE_COMPUTED_PARQUET_FILE)
@@ -459,21 +459,11 @@ class DashboardSyncModel:
                 print(f"📝 Redis Map Key: dashboard_completed_count_by_user_org")
                 print(f"   DataFrame (first 5 rows):")
                 mdo_metrics_df.select("userOrgID", col("completed_count").alias("count")).show(5, truncate=False)
-            cbp_metrics_df = self.duckdb_executor.execute_query(
-                spark, "cbp_metrics", QueryConstants.CBP_WISE_COMPREHENSIVE
-            )
-
+            cbp_metrics_df = self.duckdb_executor.execute_query(spark, "cbp_metrics", QueryConstants.CBP_WISE_COMPREHENSIVE)
+            cbp_moderated_df = QueryConstants.get_cbp_moderated_metrics(ParquetFileConstants)
+            cbp_metrics_df = cbp_metrics_df.join(spark.createDataFrame(cbp_moderated_df), on="courseOrgID", how="left")
             # Execute live course count and rating separately
-            live_course_count_df = self.duckdb_executor.execute_query(
-                spark, "live_course_count", QueryConstants.LIVE_COURSE_MODERATED_COUNT_BY_ORG)
-            # Merge the two dataframes
             if cbp_metrics_df and cbp_metrics_df.count() > 0:
-                if live_course_count_df and live_course_count_df.count() > 0:
-                    cbp_metrics_df = cbp_metrics_df.join(
-                        live_course_count_df,
-                        on="courseOrgID",
-                        how="left"
-                    )
                 Redis.dispatchDataFrame("dashboard_content_completed_count_by_course_org",
                                         cbp_metrics_df.select("courseOrgID", col("content_completed_count").alias("count")),
                                         "courseOrgID", "count", conf=config)
@@ -487,14 +477,14 @@ class DashboardSyncModel:
                                         cbp_metrics_df.select("courseOrgID", col("certificates_generated_count").alias("count")),
                                         "courseOrgID", "count", conf=config)
                 Redis.dispatchDataFrame("dashboard_course_moderated_course_enrolment_count_by_course_org",
-                                        cbp_metrics_df.select("courseOrgID", col("course_moderated_course_enrolment_count").alias("count")),
+                                        cbp_metrics_df.select("courseOrgID", col("course_moderated_course_enrolment_count").cast("long").alias("count")),
                                         "courseOrgID", "count", conf=config)
                 Redis.dispatchDataFrame("dashboard_course_moderated_course_certificates_generated_count_by_course_org",
-                                        cbp_metrics_df.select("courseOrgID", col("course_moderated_course_certificates_generated_count").alias("count")),
+                                        cbp_metrics_df.select("courseOrgID", col("course_moderated_course_certificates_generated_count").cast("long").alias("count")),
                                         "courseOrgID", "count", conf=config)
                 Redis.dispatchDataFrame("dashboard_live_course_moderated_course_count_by_course_org",
                                         cbp_metrics_df.select("courseOrgID",
-                                                              col("live_course_moderated_course_count").alias("count")),
+                                                              col("live_course_moderated_course_count").cast("long").alias("count")),
                                         "courseOrgID", "count", conf=config)
                 Redis.dispatchDataFrame("dashboard_course_moderated_course_average_rating_by_course_org",
                                         cbp_metrics_df.select("courseOrgID",

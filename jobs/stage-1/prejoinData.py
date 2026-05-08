@@ -27,11 +27,28 @@ def initialize_spark():
     """
     print("Initializing Spark Session...")
 
+    # spark = SparkSession.builder \
+    #    .appName("DataProcessing_Pipeline") \
+    #    .config("spark.executor.memory", "50g") \
+    #    .config("spark.driver.memory", "30g") \
+    #    .config("spark.sql.shuffle.partitions", "128") \
+    #    .config("spark.sql.legacy.timeParserPolicy", "LEGACY") \
+    #    .getOrCreate()
+
     spark = SparkSession.builder \
         .appName("DataProcessing_Pipeline") \
-        .config("spark.executor.memory", "42g") \
+        .config("spark.master", "local[16]") \
+        .config("spark.executor.instances", "3") \
+        .config("spark.executor.cores", "5") \
+        .config("spark.executor.memory", "22g") \
+        .config("spark.executor.memoryOverhead", "4g") \
         .config("spark.driver.memory", "18g") \
-        .config("spark.sql.shuffle.partitions", "64") \
+        .config("spark.driver.maxResultSize", "8g") \
+        .config("spark.sql.shuffle.partitions", "128") \
+        .config("spark.sql.files.maxPartitionBytes", "256MB") \
+        .config("spark.sql.adaptive.enabled", "true") \
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+        .config("spark.sql.adaptive.skewJoin.enabled", "true") \
         .config("spark.sql.legacy.timeParserPolicy", "LEGACY") \
         .getOrCreate()
 
